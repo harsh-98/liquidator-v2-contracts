@@ -1,2 +1,9 @@
-# liquidator-v2-contracts
-contracts to deploy for liquidator
+![gearbox](header.png)
+
+## Gearbox protocol
+
+This repository contains contracts that should be deployed to use default Gearbox [liquidator](https://github.com/Gearbox-protocol/liquidator-v2) for partial liquidations
+
+### Important information for contributors
+
+As a contributor to the Gearbox Protocol GitHub repository, your pull requests indicate acceptance of our Gearbox Contribution Agreement. This agreement outlines that you assign the Intellectual Property Rights of your contributions to the Gearbox Foundation. This helps safeguard the Gearbox protocol and ensure the accumulation of its intellectual property. Contributions become part of the repository and may be used for various purposes, including commercial. As recognition for your expertise and work, you receive the opportunity to participate in the protocol's development and the potential to see your work integrated within it. The full Gearbox Contribution Agreement is accessible within the [repository](/ContributionAgreement) for comprehensive understanding. [Let's innovate together!]

@@ -1,0 +1,51 @@
+{
+  "name": "@gearbox-protocol/liquidator-v2-contracts",
+  "description": "Complimentary contracts for gearbox liquidator",
+  "version": "1.0.0",
+  "homepage": "https://gearbox.fi",
+  "keywords": [
+    "gearbox"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Gearbox-protocol/liquidator-v2-contracts"
+  },
+  "license": "BUSL-1.1",
+  "main": "dist/index.js",
+  "files": [
+    "contracts",
+    "dist"
+  ],
+  "scripts": {
+    "clean": "forge clean && rm -rf types dist",
+    "build": "forge build && yarn types && tsc",
+    "types": "typechain --target ethers-v5 --out-dir types ./forge-out/**/*.json",
+    "forge-build": "forge clean && forge build",
+    "prepare": "husky",
+    "prettier": "forge fmt",
+    "prettier:ci": "forge fmt"
+  },
+  "devDependencies": {
+    "@1inch/solidity-utils": "^2.4.0",
+    "@commitlint/cli": "^19.2.1",
+    "@commitlint/config-conventional": "^19.1.0",
+    "@gearbox-protocol/bots-v3": "^1.5.1",
+    "@gearbox-protocol/core-v2": "1.19.0-base.17",
+    "@gearbox-protocol/core-v3": "^1.49.3",
+    "@openzeppelin/contracts": "^4.9.6",
+    "@typechain/ethers-v5": "^11.1.2",
+    "ethers": "^5.7.2",
+    "husky": "^9.0.11",
+    "lint-staged": "^15.2.2",
+    "typechain": "^8.1.0",
+    "typescript": "^5.4.4"
+  },
+  "lint-staged": {
+    "*.sol": "forge fmt"
+  },
+  "commitlint": {
+    "extends": [
+      "@commitlint/config-conventional"
+    ]
+  }
+}
