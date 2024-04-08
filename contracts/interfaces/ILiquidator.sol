@@ -14,6 +14,8 @@ struct LiquidationResult {
 }
 
 interface ILiquidator {
+    function router() external view returns (address);
+    function partialLiquidationBot() external view returns (address);
     function cmToCA(address cm) external view returns (address);
 
     function partialLiquidateAndConvert(
@@ -36,4 +38,12 @@ interface ILiquidator {
         address[] calldata connectors,
         uint256 slippage
     ) external returns (LiquidationResult memory res);
+
+    function registerCM(address creditManager) external;
+
+    function withdrawToken(address token, uint256 amount, address to) external;
+
+    function setRouter(address newRouter) external;
+
+    function setPartialLiquidationBot(address newPLB) external;
 }
