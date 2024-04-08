@@ -8,6 +8,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@1inch/solidity-utils/contracts/libraries/SafeERC20.sol";
 
 import {IRouterV3, RouterResult} from "./interfaces/IRouterV3.sol";
+import {ILiquidator, LiquidationResult} from "./interfaces/ILiquidator.sol";
 import {IPartialLiquidationBotV3} from "@gearbox-protocol/bots-v3/contracts/interfaces/IPartialLiquidationBotV3.sol";
 import {ICreditManagerV3} from "@gearbox-protocol/core-v3/contracts/interfaces/ICreditManagerV3.sol";
 import {ICreditFacadeV3} from "@gearbox-protocol/core-v3/contracts/interfaces/ICreditFacadeV3.sol";
@@ -16,13 +17,6 @@ import {ICreditFacadeV3Multicall} from "@gearbox-protocol/core-v3/contracts/inte
 import {MultiCall, MultiCallOps} from "@gearbox-protocol/core-v2/contracts/libraries/MultiCall.sol";
 import {AaveFLTaker} from "./AaveFLTaker.sol";
 import {IAavePoolFlashLoan} from "./interfaces/IAavePoolFlashLoan.sol";
-
-struct LiquidationResult {
-    MultiCall[] calls;
-    int256 profit;
-    uint256 amountIn;
-    uint256 amountOut;
-}
 
 struct IntermediateData {
     bool preview;
@@ -39,7 +33,7 @@ struct IntermediateData {
     uint256 initialUnderlyingBalance;
 }
 
-contract Liquidator is Ownable {
+contract Liquidator is ILiquidator, Ownable {
     using SafeERC20 for IERC20;
     using MultiCallOps for MultiCall[];
 
