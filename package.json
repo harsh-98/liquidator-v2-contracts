@@ -19,7 +19,7 @@
   "scripts": {
     "clean": "forge clean && rm -rf types dist",
     "build": "forge build && yarn types && tsc",
-    "types": "typechain --target ethers-v5 --out-dir types ./forge-out/**/*.json",
+    "types": "typechain --target ethers-v5 --out-dir ./src/generated ./forge-out/**/*.json",
     "forge-build": "forge clean && forge build",
     "prepare": "husky",
     "prettier": "forge fmt",
@@ -27,18 +27,18 @@
   },
   "devDependencies": {
     "@1inch/solidity-utils": "^2.4.0",
-    "@commitlint/cli": "^19.2.1",
-    "@commitlint/config-conventional": "^19.1.0",
+    "@commitlint/cli": "^19.3.0",
+    "@commitlint/config-conventional": "^19.2.2",
     "@gearbox-protocol/bots-v3": "^1.5.1",
     "@gearbox-protocol/core-v2": "1.19.0-base.17",
-    "@gearbox-protocol/core-v3": "^1.49.3",
+    "@gearbox-protocol/core-v3": "^1.49.7",
     "@openzeppelin/contracts": "^4.9.6",
     "@typechain/ethers-v5": "^11.1.2",
     "ethers": "^5.7.2",
     "husky": "^9.0.11",
     "lint-staged": "^15.2.2",
     "typechain": "^8.1.0",
-    "typescript": "^5.4.4"
+    "typescript": "^5.4.5"
   },
   "lint-staged": {
     "*.sol": "forge fmt"

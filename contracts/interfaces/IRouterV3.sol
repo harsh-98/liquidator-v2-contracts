@@ -3,7 +3,14 @@
 // (c) Gearbox Holdings, 2021
 pragma solidity ^0.8.17;
 
-import {MultiCall} from "@gearbox-protocol/core-v3/contracts/interfaces/ICreditFacadeV3.sol";
+import {Balance} from "@gearbox-protocol/core-v2/contracts/libraries/Balances.sol";
+import {MultiCall} from "@gearbox-protocol/core-v2/contracts/libraries/MultiCall.sol";
+
+struct PathOption {
+    address target;
+    uint8 option;
+    uint8 totalOptions;
+}
 
 struct RouterResult {
     uint256 amount;
@@ -20,4 +27,15 @@ interface IRouterV3 {
         address[] calldata connectors,
         uint256 slippage
     ) external returns (RouterResult memory);
+
+    function findBestClosePath(
+        address creditAccount,
+        Balance[] calldata expectedBalances,
+        Balance[] calldata leftoverBalances,
+        address[] memory connectors,
+        uint256 slippage,
+        PathOption[] memory pathOptions,
+        uint256 iterations,
+        bool force
+    ) external returns (RouterResult memory result);
 }

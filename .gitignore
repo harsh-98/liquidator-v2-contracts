@@ -11,6 +11,7 @@
 /out
 /typechain
 /types
+/src/generated
 coverage*
 
 .env
