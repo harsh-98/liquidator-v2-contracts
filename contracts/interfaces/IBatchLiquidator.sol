@@ -7,6 +7,12 @@ import {Balance} from "@gearbox-protocol/core-v2/contracts/libraries/Balances.so
 import {MultiCall} from "@gearbox-protocol/core-v2/contracts/libraries/MultiCall.sol";
 import {PathOption} from "./IRouterV3.sol";
 
+struct PriceUpdate {
+    address token;
+    bool reserve;
+    bytes data;
+}
+
 struct RouterLiqParams {
     address creditAccount;
     Balance[] expectedBalances;
@@ -16,6 +22,7 @@ struct RouterLiqParams {
     PathOption[] pathOptions;
     uint256 iterations;
     bool force;
+    PriceUpdate[] priceUpdates;
 }
 
 struct LiqParams {

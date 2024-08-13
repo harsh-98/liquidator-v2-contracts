@@ -10,11 +10,18 @@ import {SafeERC20} from "@1inch/solidity-utils/contracts/libraries/SafeERC20.sol
 import {IRouterV3, RouterResult} from "./interfaces/IRouterV3.sol";
 import {ILiquidator, LiquidationResult} from "./interfaces/ILiquidator.sol";
 import {IPartialLiquidationBotV3} from "@gearbox-protocol/bots-v3/contracts/interfaces/IPartialLiquidationBotV3.sol";
-import {ICreditManagerV3} from "@gearbox-protocol/core-v3/contracts/interfaces/ICreditManagerV3.sol";
+import {ICreditAccountV3} from "@gearbox-protocol/core-v3/contracts/interfaces/ICreditAccountV3.sol";
+import {
+    ICreditManagerV3,
+    CollateralDebtData,
+    CollateralCalcTask
+} from "@gearbox-protocol/core-v3/contracts/interfaces/ICreditManagerV3.sol";
 import {ICreditFacadeV3} from "@gearbox-protocol/core-v3/contracts/interfaces/ICreditFacadeV3.sol";
 import {IPriceOracleV3} from "@gearbox-protocol/core-v3/contracts/interfaces/IPriceOracleV3.sol";
 import {ICreditFacadeV3Multicall} from "@gearbox-protocol/core-v3/contracts/interfaces/ICreditFacadeV3Multicall.sol";
+import {CreditLogic} from "@gearbox-protocol/core-v3/contracts/libraries/CreditLogic.sol";
 import {MultiCall, MultiCallOps} from "@gearbox-protocol/core-v2/contracts/libraries/MultiCall.sol";
+import {IUpdatablePriceFeed} from "@gearbox-protocol/core-v2/contracts/interfaces/IPriceFeed.sol";
 import {AaveFLTaker} from "./AaveFLTaker.sol";
 import {IAavePoolFlashLoan} from "./interfaces/IAavePoolFlashLoan.sol";
 
@@ -33,7 +40,9 @@ struct IntermediateData {
     uint256 initialUnderlyingBalance;
 }
 
-contract Liquidator is ILiquidator, Ownable {
+uint256 constant PERCENTAGE_FACTOR = 10000;
+
+contract Liquidator is Ownable {
     using SafeERC20 for IERC20;
     using MultiCallOps for MultiCall[];
 
@@ -213,16 +222,11 @@ contract Liquidator is ILiquidator, Ownable {
         address[] memory connectors,
         uint256 slippage
     ) internal returns (LiquidationResult memory) {
-        uint256 amountIn;
-
         address conversionAccount = cmToCA[creditManager];
-        try IPartialLiquidationBotV3(partialLiquidationBot).liquidateExactCollateral(
+
+        uint256 amountIn = IPartialLiquidationBotV3(partialLiquidationBot).liquidateExactCollateral(
             creditAccount, assetOut, amountOut, type(uint256).max, conversionAccount, priceUpdates
-        ) returns (uint256 _amountIn) {
-            amountIn = _amountIn;
-        } catch {
-            return LiquidationResult({calls: new MultiCall[](0), profit: type(int256).min, amountIn: 0, amountOut: 0});
-        }
+        );
 
         (MultiCall[] memory calls, uint256 amountOutUnderlying) =
             _getConversionResult(creditManager, conversionAccount, assetOut, amountOut, connectors, slippage);
@@ -255,11 +259,140 @@ contract Liquidator is ILiquidator, Ownable {
                 target: creditFacade,
                 callData: abi.encodeCall(
                     ICreditFacadeV3Multicall.withdrawCollateral, (underlying, type(uint256).max, address(this))
-                    )
+                )
             })
         );
 
         return (res.calls, res.minAmount);
+    }
+
+    function getOptimalLiquidation(
+        address creditAccount,
+        uint256 hfOptimal,
+        IPartialLiquidationBotV3.PriceUpdate[] calldata priceUpdates
+    )
+        external
+        returns (
+            address tokenOut,
+            uint256 optimalAmount,
+            uint256 repaidAmount,
+            uint256 flashLoanAmount,
+            bool isOptimalRepayable
+        )
+    {
+        ICreditManagerV3 creditManager = ICreditManagerV3(ICreditAccountV3(creditAccount).creditManager());
+        IPriceOracleV3 priceOracle = IPriceOracleV3(creditManager.priceOracle());
+
+        _applyOnDemandPriceUpdates(priceOracle, priceUpdates);
+
+        tokenOut = _getBestTokenOut(creditAccount, creditManager, priceOracle);
+
+        (optimalAmount, repaidAmount, isOptimalRepayable) =
+            _getOptimalAmount(creditAccount, tokenOut, hfOptimal, creditManager, priceOracle);
+        flashLoanAmount = _getChargedAmount(repaidAmount, creditManager) * 1005 / 1000;
+    }
+
+    function _getBestTokenOut(address creditAccount, ICreditManagerV3 creditManager, IPriceOracleV3 priceOracle)
+        internal
+        view
+        returns (address bestToken)
+    {
+        uint256 enabledTokensMask = creditManager.enabledTokensMaskOf(creditAccount);
+        address underlying = creditManager.underlying();
+        uint256 bestVal = 0;
+
+        for (uint256 i = 1; i < creditManager.collateralTokensCount(); ++i) {
+            if (enabledTokensMask & (1 << i) > 0) {
+                (address token,) = creditManager.collateralTokenByMask(1 << i);
+                uint256 val = priceOracle.convert(IERC20(token).balanceOf(creditAccount), token, underlying);
+
+                if (val > bestVal) {
+                    bestVal = val;
+                    bestToken = token;
+                }
+            }
+        }
+    }
+
+    function _getOptimalAmount(
+        address creditAccount,
+        address tokenOut,
+        uint256 hfOptimal,
+        ICreditManagerV3 creditManager,
+        IPriceOracleV3 priceOracle
+    ) internal view returns (uint256, uint256, bool) {
+        address underlying = creditManager.underlying();
+
+        CollateralDebtData memory cdd =
+            creditManager.calcDebtAndCollateral(creditAccount, CollateralCalcTask.DEBT_COLLATERAL);
+
+        uint256 discount;
+        uint256 optimalValueSeized;
+
+        {
+            uint256 ltTokenOut = creditManager.liquidationThresholds(tokenOut);
+
+            (, uint256 feeLiquidation, uint256 liquidationDiscount,,) = creditManager.fees();
+            uint256 totalFee = (
+                (PERCENTAGE_FACTOR - liquidationDiscount)
+                    * IPartialLiquidationBotV3(partialLiquidationBot).premiumScaleFactor()
+                    + feeLiquidation * IPartialLiquidationBotV3(partialLiquidationBot).feeScaleFactor()
+            ) / PERCENTAGE_FACTOR;
+            discount = PERCENTAGE_FACTOR - totalFee;
+
+            optimalValueSeized = (
+                CreditLogic.calcTotalDebt(cdd) * hfOptimal
+                    - priceOracle.convertFromUSD(cdd.twvUSD, underlying) * PERCENTAGE_FACTOR
+            ) / (discount * hfOptimal / PERCENTAGE_FACTOR - ltTokenOut);
+        }
+
+        uint256 optimalAmount = priceOracle.convert(optimalValueSeized, underlying, tokenOut);
+        uint256 repaidAmount = optimalValueSeized * discount / PERCENTAGE_FACTOR;
+
+        return _adjustToDebtLimits(creditManager, optimalAmount, repaidAmount, CreditLogic.calcTotalDebt(cdd));
+    }
+
+    function _getChargedAmount(uint256 repaidAmount, ICreditManagerV3 creditManager) internal view returns (uint256) {
+        (, uint256 feeLiquidation,,,) = creditManager.fees();
+        uint256 partialFeeLiquidation =
+            feeLiquidation * IPartialLiquidationBotV3(partialLiquidationBot).feeScaleFactor() / PERCENTAGE_FACTOR;
+        return repaidAmount * PERCENTAGE_FACTOR / (PERCENTAGE_FACTOR - partialFeeLiquidation);
+    }
+
+    function _adjustToDebtLimits(
+        ICreditManagerV3 creditManager,
+        uint256 optimalAmount,
+        uint256 repaidAmount,
+        uint256 totalDebt
+    ) internal view returns (uint256, uint256, bool) {
+        (uint128 minDebt, uint128 maxDebt) = ICreditFacadeV3(creditManager.creditFacade()).debtLimits();
+
+        if (totalDebt > maxDebt && repaidAmount < totalDebt - maxDebt) {
+            uint256 requiredRepay = totalDebt - maxDebt;
+            optimalAmount = optimalAmount * requiredRepay * 1005 / (repaidAmount * 1000);
+            repaidAmount = requiredRepay * 1005 / 1000;
+            return (optimalAmount, repaidAmount, false);
+        } else if (totalDebt < minDebt) {
+            return (0, 0, false);
+        } else if (repaidAmount > totalDebt - minDebt) {
+            uint256 surplusDebt = totalDebt - minDebt;
+            optimalAmount = optimalAmount * surplusDebt * 995 / (repaidAmount * 1000);
+            repaidAmount = surplusDebt * 995 / 1000;
+            return (optimalAmount, repaidAmount, false);
+        }
+        return (optimalAmount, repaidAmount, true);
+    }
+
+    function _applyOnDemandPriceUpdates(
+        IPriceOracleV3 priceOracle,
+        IPartialLiquidationBotV3.PriceUpdate[] memory priceUpdates
+    ) internal {
+        uint256 len = priceUpdates.length;
+        for (uint256 i; i < len; ++i) {
+            address priceFeed = priceOracle.priceFeedsRaw(priceUpdates[i].token, priceUpdates[i].reserve);
+            if (priceFeed == address(0)) revert("Updated price feed does not exist.");
+            IUpdatablePriceFeed(priceFeed).updatePrice(priceUpdates[i].data);
+        }
     }
 
     function setRouter(address newRouter) external onlyOwner {

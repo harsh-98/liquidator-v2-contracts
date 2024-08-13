@@ -6,3 +6,8 @@ export type {
   LiquidationResultStruct,
   MultiCallStruct,
 } from "./generated/IBatchLiquidator";
+
+export type {
+  TokenPriceInfoStruct,
+  TokenPriceInfoStructOutput,
+} from "./generated/IPriceHelper";

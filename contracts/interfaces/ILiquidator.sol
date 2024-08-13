@@ -39,6 +39,20 @@ interface ILiquidator {
         uint256 slippage
     ) external returns (LiquidationResult memory res);
 
+    function getOptimalLiquidation(
+        address creditAccount,
+        uint256 hfOptimal,
+        IPartialLiquidationBotV3.PriceUpdate[] calldata priceUpdates
+    )
+        external
+        returns (
+            address tokenOut,
+            uint256 optimalAmount,
+            uint256 repaidAmount,
+            uint256 flashLoanAmount,
+            bool isOptimalRepayable
+        );
+
     function registerCM(address creditManager) external;
 
     function withdrawToken(address token, uint256 amount, address to) external;
