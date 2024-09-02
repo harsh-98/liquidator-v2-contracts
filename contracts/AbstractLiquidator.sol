@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: BUSL-1.1
 // Gearbox Protocol. Generalized leverage for DeFi protocols
 // (c) Gearbox Foundation, 2024
-pragma solidity ^0.8.17;
+pragma solidity ^0.8.10;
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@1inch/solidity-utils/contracts/libraries/SafeERC20.sol";
 
+import {IPartialLiquidator, IntermediateData, LiquidationResult} from "./interfaces/IPartialLiquidator.sol";
 import {IRouterV3, RouterResult} from "./interfaces/IRouterV3.sol";
-import {ILiquidator, LiquidationResult} from "./interfaces/ILiquidator.sol";
 import {IPartialLiquidationBotV3} from "@gearbox-protocol/bots-v3/contracts/interfaces/IPartialLiquidationBotV3.sol";
 import {ICreditAccountV3} from "@gearbox-protocol/core-v3/contracts/interfaces/ICreditAccountV3.sol";
 import {
@@ -22,35 +22,15 @@ import {ICreditFacadeV3Multicall} from "@gearbox-protocol/core-v3/contracts/inte
 import {CreditLogic} from "@gearbox-protocol/core-v3/contracts/libraries/CreditLogic.sol";
 import {MultiCall, MultiCallOps} from "@gearbox-protocol/core-v2/contracts/libraries/MultiCall.sol";
 import {IUpdatablePriceFeed} from "@gearbox-protocol/core-v2/contracts/interfaces/IPriceFeed.sol";
-import {AaveFLTaker} from "./AaveFLTaker.sol";
-import {IAavePoolFlashLoan} from "./interfaces/IAavePoolFlashLoan.sol";
-
-struct IntermediateData {
-    bool preview;
-    address creditManager;
-    address creditAccount;
-    address creditFacade;
-    address assetOut;
-    uint256 amountOut;
-    IPartialLiquidationBotV3.PriceUpdate[] priceUpdates;
-    MultiCall[] conversionCalls;
-    address[] connectors;
-    uint256 slippage;
-    address conversionAccount;
-    uint256 initialUnderlyingBalance;
-}
 
 uint256 constant PERCENTAGE_FACTOR = 10000;
 
-contract Liquidator is Ownable {
+abstract contract AbstractLiquidator is Ownable, IPartialLiquidator {
     using SafeERC20 for IERC20;
     using MultiCallOps for MultiCall[];
 
     event SetRouter(address indexed newRouter);
     event SetPartialLiquidationBot(address indexed partialLiquidationBot);
-
-    address public immutable aavePool;
-    address public immutable aaveFLTaker;
 
     address public router;
     address public partialLiquidationBot;
@@ -59,16 +39,9 @@ contract Liquidator is Ownable {
 
     bytes private _liqResultTemp;
 
-    modifier onlyAave() {
-        if (msg.sender != aavePool) revert("Caller not Aave pool");
-        _;
-    }
-
-    constructor(address _router, address _plb, address _aavePool, address _aaveFLTaker) {
+    constructor(address _router, address _plb) {
         router = _router;
         partialLiquidationBot = _plb;
-        aavePool = _aavePool;
-        aaveFLTaker = _aaveFLTaker;
     }
 
     function registerCM(address creditManager) external onlyOwner {
@@ -86,17 +59,9 @@ contract Liquidator is Ownable {
         IERC20(token).safeTransfer(to, amount);
     }
 
-    function executeOperation(
-        address[] memory assets,
-        uint256[] memory amounts,
-        uint256[] memory premiums,
-        address initiator,
-        bytes calldata params
-    ) external onlyAave returns (bool) {
-        if (initiator != aaveFLTaker) revert("Flash loan initiator is not FLTaker");
-
-        IntermediateData memory intData = abi.decode(params, (IntermediateData));
-
+    function _processFlashLoan(address asset, uint256 amount, uint256 premium, IntermediateData memory intData)
+        internal
+    {
         if (intData.preview) {
             LiquidationResult memory liqResult = _previewPartialLiquidationInt(
                 intData.creditManager,
@@ -123,13 +88,10 @@ contract Liquidator is Ownable {
             _performConversion(intData.creditFacade, intData.conversionAccount, intData.conversionCalls);
 
             require(
-                intData.initialUnderlyingBalance + amounts[0] + premiums[0] < IERC20(assets[0]).balanceOf(address(this)),
+                intData.initialUnderlyingBalance + amount + premium < IERC20(asset).balanceOf(address(this)),
                 "Liquidation was not profitable"
             );
         }
-
-        IERC20(assets[0]).forceApprove(aavePool, amounts[0] + premiums[0]);
-        return true;
     }
 
     function _partialLiquidateInt(
@@ -177,7 +139,7 @@ contract Liquidator is Ownable {
 
         intData.initialUnderlyingBalance = IERC20(underlying).balanceOf(address(this));
 
-        AaveFLTaker(aaveFLTaker).takeFlashLoan(underlying, flashLoanAmount, abi.encode(intData));
+        _takeFlashLoan(underlying, flashLoanAmount, abi.encode(intData));
     }
 
     function previewPartialLiquidation(
@@ -208,10 +170,12 @@ contract Liquidator is Ownable {
 
         address underlying = ICreditManagerV3(creditManager).underlying();
 
-        AaveFLTaker(aaveFLTaker).takeFlashLoan(underlying, flashLoanAmount, abi.encode(intData));
+        _takeFlashLoan(underlying, flashLoanAmount, abi.encode(intData));
 
         return abi.decode(_liqResultTemp, (LiquidationResult));
     }
+
+    function _takeFlashLoan(address underlying, uint256 amount, bytes memory data) internal virtual;
 
     function _previewPartialLiquidationInt(
         address creditManager,
@@ -269,7 +233,7 @@ contract Liquidator is Ownable {
     function getOptimalLiquidation(
         address creditAccount,
         uint256 hfOptimal,
-        IPartialLiquidationBotV3.PriceUpdate[] calldata priceUpdates
+        IPartialLiquidationBotV3.PriceUpdate[] memory priceUpdates
     )
         external
         returns (

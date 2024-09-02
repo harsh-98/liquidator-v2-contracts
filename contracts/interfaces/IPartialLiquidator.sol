@@ -13,7 +13,22 @@ struct LiquidationResult {
     uint256 amountOut;
 }
 
-interface ILiquidator {
+struct IntermediateData {
+    bool preview;
+    address creditManager;
+    address creditAccount;
+    address creditFacade;
+    address assetOut;
+    uint256 amountOut;
+    IPartialLiquidationBotV3.PriceUpdate[] priceUpdates;
+    MultiCall[] conversionCalls;
+    address[] connectors;
+    uint256 slippage;
+    address conversionAccount;
+    uint256 initialUnderlyingBalance;
+}
+
+interface IPartialLiquidator {
     function router() external view returns (address);
     function partialLiquidationBot() external view returns (address);
     function cmToCA(address cm) external view returns (address);
