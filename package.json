@@ -50,7 +50,7 @@
     "dist"
   ],
   "scripts": {
-    "clean": "forge clean && rm -rf types dist",
+    "clean": "forge clean && rm -rf types ./dist ./src/types/generated ./src/**/*.generated.ts",
     "build": "forge build && yarn types && yarn abis && yarn bytecode && tsup",
     "types": "typechain --target ethers-v6 --out-dir ./src/types/generated ./forge-out/*.sol/*.json",
     "forge-build": "forge clean && forge build",
